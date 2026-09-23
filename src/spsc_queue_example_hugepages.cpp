@@ -29,7 +29,7 @@ int main(int argc, char* argv[]) {
 
     using namespace rigtorp;
 
-    spsc_queue<int, allocator<int>> q(2);
+    spsc_queue<int, 2, allocator<int>> q{};
     std::cout << q.capacity() << std::endl;
     auto t = std::thread([&] {
         while (!q.front());

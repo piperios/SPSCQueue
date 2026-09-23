@@ -7,7 +7,7 @@ int main(int argc, char* argv[]) {
 
     using namespace rigtorp;
 
-    spsc_queue<int> q(1);
+    spsc_queue<int, 2> q{};
     auto t = std::thread([&] {
         while (!q.front());
         std::cout << *q.front() << std::endl;

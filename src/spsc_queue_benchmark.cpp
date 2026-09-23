@@ -68,7 +68,7 @@ int main([[maybe_unused]] int const argc, [[maybe_unused]] char* argv[]) {
     std::cout << "SPSCQueue:" << std::endl;
 
     {
-        spsc_queue<int> q(queue_size);
+        spsc_queue<int, queue_size> q{};
         auto t = std::thread([&] {
             pin_thread(cpu1);
             for (auto i = 0; i < iters; ++i) {
@@ -88,7 +88,7 @@ int main([[maybe_unused]] int const argc, [[maybe_unused]] char* argv[]) {
     }
 
     {
-        spsc_queue<int> q1(queue_size), q2(queue_size);
+        spsc_queue<int, queue_size> q1{}, q2{};
         auto t = std::thread([&] {
             pin_thread(cpu1);
             for (auto i = 0; i < iters; ++i) {

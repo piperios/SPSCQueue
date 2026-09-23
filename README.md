@@ -11,7 +11,7 @@ and [*folly::ProducerConsumerQueue*](https://github.com/facebook/folly/blob/mast
 ## Example
 
 ```cpp
-spsc_queue<int> q(1);
+spsc_queue<int, 2> q{};
 auto t = std::thread([&] {
   while (!q.front());
   std::cout << *q.front() << std::endl;
@@ -25,10 +25,12 @@ See `src/spsc_queue_example.cpp` for the full example.
 
 ## Usage
 
-- `spsc_queue<T>(size_t capacity);`
+- `spsc_queue<T, Capacity>();`
 
-  Create an `spsc_queue` holding items of type `T` with capacity
-  `capacity`. Capacity needs to be at least 1.
+  Create an `spsc_queue` holding items of type `T` with at least `Capacity`
+  ring slots, rounded up to a power of two. One slot remains acts as a sentinel
+  to distinguish a full queue from an empty one, so `capacity()` returns
+  `std::bit_ceil(Capacity) - 1`. `Capacity` must be at least 2.
 
 - `void emplace(Args &&... args);`
 
@@ -143,8 +145,6 @@ buffer](https://en.wikipedia.org/wiki/Circular_buffer).
 Care has been taken to make sure to avoid any issues with [false
 sharing](https://en.wikipedia.org/wiki/False_sharing). The head and tail indices
 are aligned and padded to the false sharing range (cache line size).
-Additionally the slots buffer is padded with the false sharing range at the
-beginning and end, this prevents false sharing with any adjacent allocations.
 
 This implementation has higher throughput than a typical concurrent ring buffer
 by locally caching the head and tail indices in the writer and reader
@@ -168,9 +168,8 @@ the cached tail index can complete without stealing the writer's tail index
 cache line's exclusive state. Cache coherency traffic is therefore reduced. An
 analogous argument can be made for the queue write operation.
 
-This implementation allows for arbitrary non-power of two capacities, instead
-allocating a extra queue slot to indicate full queue. If you don't want to waste
-storage for a extra queue slot you should use a different implementation.
+The ring size is rounded up to a power of two so indices can wrap with a bitmask.
+One ring slot remains unused to distinguish a full queue from an empty one.
 
 References:
 

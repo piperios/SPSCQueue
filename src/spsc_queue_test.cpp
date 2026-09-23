@@ -79,25 +79,56 @@ int main(int argc, char* argv[]) {
 
     // Functionality test
     {
-        spsc_queue<test_type> q(10);
+        spsc_queue<test_type, 10> q{};
         assert(q.front() == nullptr);
         assert(q.empty());
         assert(q.empty() == true);
-        assert(q.capacity() == 10);
-        for (int i = 0; i < 10; i++) { q.emplace(); }
+        assert(q.capacity() == 15);
+        for (int i = 0; i < 15; i++) { q.emplace(); }
         assert(q.front() != nullptr);
-        assert(q.size() == 10);
+        assert(q.size() == 15);
         assert(q.empty() == false);
-        assert(test_type::constructed.size() == 10);
+        assert(test_type::constructed.size() == 15);
         assert(q.try_emplace() == false);
         q.pop();
-        assert(q.size() == 9);
-        assert(test_type::constructed.size() == 9);
+        assert(q.size() == 14);
+        assert(test_type::constructed.size() == 14);
         q.pop();
         assert(q.try_emplace() == true);
-        assert(test_type::constructed.size() == 9);
+        assert(test_type::constructed.size() == 14);
     }
     assert(test_type::constructed.empty());
+
+    // A two-slot ring holds one item and remains usable after wrapping.
+    {
+        spsc_queue<int, 2> q{};
+        assert(q.capacity() == 1);
+        for (int i = 0; i < 4; ++i) {
+            assert(q.try_emplace(i));
+            assert(q.size() == 1);
+            assert(!q.try_emplace(i));
+            assert(*q.front() == i);
+            q.pop();
+            assert(q.empty());
+        }
+    }
+
+    // A power-of-two ring holds one fewer item than its slot count.
+    {
+        spsc_queue<int, 4> q{};
+        assert(q.capacity() == 3);
+        for (int i = 0; i < 3; ++i) assert(q.try_emplace(i));
+        assert(!q.try_emplace(3));
+        q.pop();
+        q.pop();
+        assert(q.try_emplace(3));
+        assert(q.size() == 2);
+    }
+
+    {
+        spsc_queue<int, 512> q{};
+        assert(q.capacity() == 511);
+    }
 
     // Copyable only type
     {
@@ -109,7 +140,7 @@ int main(int argc, char* argv[]) {
             test(test&&) = delete;
         };
 
-        spsc_queue<test> q(16);
+        spsc_queue<test, 16> q{};
         // lvalue
         test v;
         q.emplace(v);
@@ -137,7 +168,7 @@ int main(int argc, char* argv[]) {
             test(test&&) = delete;
         };
 
-        spsc_queue<test> q(16);
+        spsc_queue<test, 16> q{};
         // lvalue
         test v;
         q.emplace(v);
@@ -157,7 +188,7 @@ int main(int argc, char* argv[]) {
 
     // Movable only type
     {
-        spsc_queue<std::unique_ptr<int>> q(16);
+        spsc_queue<std::unique_ptr<int>, 16> q{};
         // lvalue
         // auto v = std::unique_ptr<int>(new int(1));
         // q.emplace(v);
@@ -176,25 +207,10 @@ int main(int argc, char* argv[]) {
         static_assert(noexcept(q.try_push(std::move(v))) == true, "");
     }
 
-    // capacity < 1
-    {
-        spsc_queue<int> q(0);
-        assert(q.capacity() == 1);
-    }
-
-    // Check that padding doesn't overflow capacity
-    {
-        bool throws = false;
-        try {
-            spsc_queue<int> q(SIZE_MAX - 1);
-        } catch (...) { throws = true; }
-        assert(throws);
-    }
-
     // Fuzz and performance test
     {
         size_t const iter = 100000;
-        spsc_queue<size_t> q(iter / 1000 + 1);
+        spsc_queue<size_t, 101> q{};
         std::atomic<bool> flag(false);
         std::thread producer([&] {
             while (!flag);

@@ -23,8 +23,10 @@ SOFTWARE.
 #pragma once
 
 #include <atomic>
+#include <bit>
 #include <cassert>
 #include <cstddef>
+#include <limits>
 #include <memory>       // std::allocator
 #include <new>          // std::hardware_destructive_interference_size
 #include <type_traits>  // std::enable_if, std::is_*_constructible
@@ -46,7 +48,7 @@ SOFTWARE.
 
 namespace rigtorp {
 
-template <typename T, typename Allocator = std::allocator<T>>
+template <typename T, std::size_t Capacity = 1024, typename Allocator = std::allocator<T>>
 class spsc_queue {
 
     template <typename, typename = void>
@@ -57,16 +59,14 @@ class spsc_queue {
         : std::true_type {};
 
 public:
-    explicit spsc_queue(size_t const capacity, Allocator const& allocator = Allocator())
-        : capacity_(std::clamp(capacity, static_cast<std::size_t>(2), std::numeric_limits<std::size_t>::max() - (2 * cache_padding)))
-        , allocator_(allocator) {
+    explicit spsc_queue(Allocator const& allocator = Allocator()) : allocator_(allocator) {
 
         if constexpr (has_allocate_at_least<Allocator>::value) {
-            auto res = allocator_.allocate_at_least(capacity_ + (2 * cache_padding));
+            auto res = allocator_.allocate_at_least(allocation_count_ + 2 * cache_line_padding);
             slots_ = res.ptr;
-            capacity_ = res.count - (2 * cache_padding);
+            allocation_count_ = res.count - 2 * cache_line_padding;
         } else {
-            slots_ = std::allocator_traits<Allocator>::allocate(allocator_, capacity_ + (2 * cache_padding));
+            slots_ = std::allocator_traits<Allocator>::allocate(allocator_, allocation_count_ + 2 * cache_line_padding);
         }
 
         static_assert(alignof(spsc_queue<T>) == cache_line_size, "queue should be cache-aligned");
@@ -83,7 +83,7 @@ public:
 
     ~spsc_queue() {
         while (front()) pop();
-        std::allocator_traits<Allocator>::deallocate(allocator_, slots_, capacity_ + (2 * cache_padding));
+        std::allocator_traits<Allocator>::deallocate(allocator_, slots_, allocation_count_ + 2 * cache_line_padding);
     }
 
     template <typename... Args>
@@ -92,12 +92,10 @@ public:
 
         auto const write_idx = write_idx_.load(std::memory_order_relaxed);
 
-        auto next_write_idx = write_idx + 1;
-        if (next_write_idx == capacity_) next_write_idx = 0;
-
+        auto const next_write_idx = (write_idx + 1) & access_mask;
         while (next_write_idx == cached_read_idx_) cached_read_idx_ = read_idx_.load(std::memory_order_acquire);
 
-        new (&slots_[write_idx + cache_padding]) T(std::forward<Args>(args)...);
+        new (&slots_[write_idx + cache_line_padding]) T(std::forward<Args>(args)...);
 
         write_idx_.store(next_write_idx, std::memory_order_release);
     }
@@ -108,16 +106,13 @@ public:
 
         auto const write_idx = write_idx_.load(std::memory_order_relaxed);
 
-        auto next_write_idx = write_idx + 1;
-
-        if (next_write_idx == capacity_) { next_write_idx = 0; }
-
+        auto const next_write_idx = (write_idx + 1) & access_mask;
         if (next_write_idx == cached_read_idx_) {
             cached_read_idx_ = read_idx_.load(std::memory_order_acquire);
             if (next_write_idx == cached_read_idx_) return false;
         }
 
-        new (&slots_[write_idx + cache_padding]) T(std::forward<Args>(args)...);
+        new (&slots_[write_idx + cache_line_padding]) T(std::forward<Args>(args)...);
 
         write_idx_.store(next_write_idx, std::memory_order_release);
 
@@ -153,7 +148,7 @@ public:
             if (cached_write_idx_ == read_idx) return nullptr;
         }
 
-        return &slots_[read_idx + cache_padding];
+        return &slots_[read_idx + cache_line_padding];
     }
 
     void pop() noexcept {
@@ -162,41 +157,40 @@ public:
         auto const read_idx = read_idx_.load(std::memory_order_relaxed);
         assert(write_idx_.load(std::memory_order_acquire) != read_idx && "Can only call pop() after front() has returned a non-nullptr");
 
-        slots_[read_idx + cache_padding].~T();
+        slots_[read_idx + cache_line_padding].~T();
 
-        auto next_read_idx = read_idx + 1;
-        if (next_read_idx == capacity_) next_read_idx = 0;
+        auto next_read_idx = (read_idx + 1) & access_mask;
 
         read_idx_.store(next_read_idx, std::memory_order_release);
     }
 
-    RIGTORP_NODISCARD size_t size() const noexcept {
-        std::ptrdiff_t diff = write_idx_.load(std::memory_order_acquire) - read_idx_.load(std::memory_order_acquire);
-        if (diff < 0) { diff += capacity_; }
-        return static_cast<size_t>(diff);
+    RIGTORP_NODISCARD std::size_t size() const noexcept {
+        return (write_idx_.load(std::memory_order_acquire) - read_idx_.load(std::memory_order_acquire)) & access_mask;
     }
 
     RIGTORP_NODISCARD bool empty() const noexcept { return write_idx_.load(std::memory_order_acquire) == read_idx_.load(std::memory_order_acquire); }
 
-    RIGTORP_NODISCARD size_t capacity() const noexcept { return capacity_ - 1; }
+    RIGTORP_NODISCARD static std::size_t capacity() noexcept { return queue_capacity - 1; }
 
 private:
-#ifdef __cpp_lib_hardware_interference_size
-    constexpr static size_t cache_line_size = std::hardware_destructive_interference_size;
-#else
-    constexpr static size_t cache_line_size = 64;
-#endif
+    static_assert(Capacity >= 2, "Capacity must provide at least two ring slots");
+    static_assert(Capacity <= std::bit_floor(std::numeric_limits<std::size_t>::max()), "Capacity is too large for the ring");
 
-    // Padding to avoid false sharing between `slots_` and adjacent allocations
-    constexpr static size_t cache_padding = ((cache_line_size - 1) / sizeof(T)) + 1;
+    constexpr static std::size_t queue_capacity = std::bit_ceil(Capacity);
 
-    size_t capacity_{};
+    constexpr static std::size_t access_mask = queue_capacity - 1;
+
+    constexpr static std::size_t cache_line_size = std::hardware_destructive_interference_size;
+
+    constexpr static std::size_t cache_line_padding = ((cache_line_size - 1) / sizeof(T)) + 1;
+
+    std::size_t allocation_count_{queue_capacity};
     T* slots_{nullptr};
 
     RIGTORP_NO_UNIQUE_ADDRESS Allocator allocator_;
 
     // Align to cache line size in order to avoid false sharing.
-    // cached_read_idx_ and cached_write_idx_ are used to reduce cache traffic.
+    // `cached_read_idx_` and `cached_write_idx_` are used to reduce cache traffic.
     alignas(cache_line_size) std::atomic<size_t> write_idx_{};
     alignas(cache_line_size) size_t cached_write_idx_{};
     alignas(cache_line_size) size_t cached_read_idx_{};
