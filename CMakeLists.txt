@@ -1,11 +1,11 @@
 cmake_minimum_required(VERSION 3.6)
 
-project(SPSCQueue VERSION 1.1 LANGUAGES CXX)
+project(spsc_queue VERSION 1.1 LANGUAGES CXX)
 
 add_library(${PROJECT_NAME} INTERFACE)
 add_library(${PROJECT_NAME}::${PROJECT_NAME} ALIAS ${PROJECT_NAME})
 
-target_compile_features(${PROJECT_NAME} INTERFACE cxx_std_11)
+target_compile_features(${PROJECT_NAME} INTERFACE cxx_std_20)
 
 target_include_directories(${PROJECT_NAME} INTERFACE
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
@@ -13,35 +13,29 @@ target_include_directories(${PROJECT_NAME} INTERFACE
 
 # Tests and examples
 if(CMAKE_CURRENT_SOURCE_DIR STREQUAL CMAKE_SOURCE_DIR)
-    if(MSVC)
-        add_compile_options(/permissive- /W4)
-    else()
-        add_compile_options(-Wall -Wextra -Wpedantic -Wno-c++17-extensions)
-    endif()
+    add_compile_options(-Wall -Wextra -Wpedantic)
 
     find_package(Threads REQUIRED)
 
-    if (UNIX AND NOT APPLE)
-        add_executable(SPSCQueueBenchmark src/SPSCQueueBenchmark.cpp)
-        target_link_libraries(SPSCQueueBenchmark SPSCQueue Threads::Threads)
-    endif()
+    add_executable(spsc_queue_benchmark src/spsc_queue_benchmark.cpp)
+    target_link_libraries(spsc_queue_benchmark spsc_queue Threads::Threads)
 
     if (((CMAKE_CXX_COMPILER_ID MATCHES "GNU" AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL 7.0)
         OR (CMAKE_CXX_COMPILER_ID MATCHES "Clang" AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL 9.0))
         AND UNIX AND NOT APPLE)
-        add_executable(SPSCQueueExampleHugepages src/SPSCQueueExampleHugepages.cpp)
-        target_link_libraries(SPSCQueueExampleHugepages SPSCQueue Threads::Threads)
-        target_compile_features(SPSCQueueExampleHugepages PRIVATE cxx_std_17)
+        add_executable(spsc_queue_example_hugepages src/spsc_queue_example_hugepages.cpp)
+        target_link_libraries(spsc_queue_example_hugepages spsc_queue Threads::Threads)
+        target_compile_features(spsc_queue_example_hugepages PRIVATE cxx_std_20)
     endif()
 
-    add_executable(SPSCQueueExample src/SPSCQueueExample.cpp)
-    target_link_libraries(SPSCQueueExample SPSCQueue Threads::Threads)
+    add_executable(spsc_queue_example src/spsc_queue_example.cpp)
+    target_link_libraries(spsc_queue_example spsc_queue Threads::Threads)
 
-    add_executable(SPSCQueueTest src/SPSCQueueTest.cpp)
-    target_link_libraries(SPSCQueueTest SPSCQueue Threads::Threads)
+    add_executable(spsc_queue_test src/spsc_queue_test.cpp)
+    target_link_libraries(spsc_queue_test spsc_queue Threads::Threads)
 
     enable_testing()
-    add_test(SPSCQueueTest SPSCQueueTest)
+    add_test(spsc_queue_test spsc_queue_test)
 endif()
 
 # Install

@@ -1,17 +1,17 @@
-# SPSCQueue.h
+# spsc_queue.hpp
 
 [![C/C++ CI](https://github.com/rigtorp/SPSCQueue/workflows/C/C++%20CI/badge.svg)](https://github.com/rigtorp/SPSCQueue/actions)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](https://raw.githubusercontent.com/rigtorp/SPSCQueue/master/LICENSE)
 
 A single producer single consumer wait-free and lock-free fixed size queue
-written in C++11. This implementation is faster than both
+written in C++20. This implementation is faster than both
 [*boost::lockfree::spsc*](https://www.boost.org/doc/libs/1_76_0/doc/html/boost/lockfree/spsc_queue.html)
 and [*folly::ProducerConsumerQueue*](https://github.com/facebook/folly/blob/master/folly/docs/ProducerConsumerQueue.md).
 
 ## Example
 
 ```cpp
-SPSCQueue<int> q(1);
+spsc_queue<int> q(1);
 auto t = std::thread([&] {
   while (!q.front());
   std::cout << *q.front() << std::endl;
@@ -21,13 +21,13 @@ q.push(1);
 t.join();
 ```
 
-See `src/SPSCQueueExample.cpp` for the full example.
+See `src/spsc_queue_example.cpp` for the full example.
 
 ## Usage
 
-- `SPSCQueue<T>(size_t capacity);`
+- `spsc_queue<T>(size_t capacity);`
 
-  Create a `SPSCqueue` holding items of type `T` with capacity
+  Create an `spsc_queue` holding items of type `T` with capacity
   `capacity`. Capacity needs to be at least 1.
 
 - `void emplace(Args &&... args);`
@@ -105,18 +105,18 @@ Below is an example huge page allocator for Linux:
 ```cpp
 #include <sys/mman.h>
 
-template <typename T> struct Allocator {
+template <typename T> struct allocator {
   using value_type = T;
 
-  struct AllocationResult {
+  struct allocation_result {
     T *ptr;
     size_t count;
   };
 
-  size_t roundup(size_t n) { return (((n - 1) >> 21) + 1) << 21; }
+  size_t round_up(size_t n) { return (((n - 1) >> 21) + 1) << 21; }
 
-  AllocationResult allocate_at_least(size_t n) {
-    size_t count = roundup(sizeof(T) * n);
+  allocation_result allocate_at_least(size_t n) {
+    size_t count = round_up(sizeof(T) * n);
     auto p = static_cast<T *>(mmap(nullptr, count, PROT_READ | PROT_WRITE,
                                    MAP_PRIVATE | MAP_ANONYMOUS | MAP_HUGETLB,
                                    -1, 0));
@@ -126,11 +126,11 @@ template <typename T> struct Allocator {
     return {p, count / sizeof(T)};
   }
 
-  void deallocate(T *p, size_t n) { munmap(p, roundup(sizeof(T) * n)); }
+  void deallocate(T *p, size_t n) { munmap(p, round_up(sizeof(T) * n)); }
 };
 ```
 
-See `src/SPSCQueueExampleHugepages.cpp` for the full example on how to use huge
+See `src/spsc_queue_example_hugepages.cpp` for the full example on how to use huge
 pages on Linux.
 
 ## Implementation
